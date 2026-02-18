@@ -40,29 +40,27 @@ class WeChatNotifier:
             return False
 
         url = f"{self.serverchan_url}/{self.serverchan_key}.send"
-
         data = {
-                    "title": title,
-                    "desp": content,   # ✅ 用 desp 才是正文（Markdown）
-                    "channel": 3,
-                    "openid": ""
-                }
-                response = requests.post(url, data=data, timeout=30)
-                response.raise_for_status()
-                result = response.json()
+            "title": title,
+            "desp": content,
+            "channel": 3,
+            "openid": "",
+        }
 
         try:
-
-            if result.get("code") == 0:
-                print("✓ ServerChan 推送成功")
-                return True
-            else:
-                print(f"✗ ServerChan 推送失败: {result.get('message', '未知错误')}")
-                return False
-
+            response = requests.post(url, data=data, timeout=30)
+            response.raise_for_status()
+            result = response.json()
         except requests.RequestException as e:
             print(f"✗ ServerChan 请求错误: {e}")
             return False
+
+        if result.get("code") == 0:
+            print("✓ ServerChan 推送成功")
+            return True
+
+        print(f"✗ ServerChan 推送失败: {result.get('message', '未知错误')}")
+        return False
 
     def send_via_wecom_webhook(
         self,
