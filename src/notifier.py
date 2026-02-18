@@ -40,11 +40,12 @@ class WeChatNotifier:
             return False
 
         url = f"{self.serverchan_url}/{self.serverchan_key}.send"
+
+        # 使用 ServerChan 默认推送通道，避免固定 channel/openid 导致“接口成功但未送达”。
         data = {
             "title": title,
             "desp": content,
-            "channel": 3,
-            "openid": "",
+ main
         }
 
         try:
@@ -54,6 +55,19 @@ class WeChatNotifier:
         except requests.RequestException as e:
             print(f"✗ ServerChan 请求错误: {e}")
             return False
+        except ValueError:
+            print(f"✗ ServerChan 响应不是有效 JSON: {response.text[:200]}")
+            return False
+
+        if result.get("code") == 0:
+            print("✓ ServerChan 推送成功")
+            return True
+
+        print(
+            "✗ ServerChan 推送失败: "
+            f"code={result.get('code')}, message={result.get('message', '未知错误')}"
+        )
+        return False
 
         if result.get("code") == 0:
             print("✓ ServerChan 推送成功")
