@@ -42,15 +42,16 @@ class WeChatNotifier:
         url = f"{self.serverchan_url}/{self.serverchan_key}.send"
 
         data = {
-            "title": title,
-            "content": content,
-            "channel": 3,  # 微信通知
-            "openid": ""   # 发送给所有人
-        }
+                    "title": title,
+                    "desp": content,   # ✅ 用 desp 才是正文（Markdown）
+                    "channel": 3,
+                    "openid": ""
+                }
+                response = requests.post(url, data=data, timeout=30)
+                response.raise_for_status()
+                result = response.json()
 
         try:
-            response, data = requests.post(url=data, timeout=30)
-            result = response.json()
 
             if result.get("code") == 0:
                 print("✓ ServerChan 推送成功")
