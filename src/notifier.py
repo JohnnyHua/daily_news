@@ -84,7 +84,7 @@ class WeChatNotifier:
             return False
 
         url = f"{self.serverchan_url}/{self.serverchan_key}.send"
-codex/fix-indentation-error-in-notifier.py-8pgib0
+
         # 使用 ServerChan 默认推送通道，避免固定 channel/openid 导致“接口成功但未送达”。
         data = {
             "title": title,
