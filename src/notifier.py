@@ -23,6 +23,28 @@ class WeChatNotifier:
         """
         self.serverchan_key = serverchan_key or os.getenv("SERVERCHAN_KEY")
         self.serverchan_url = "https://sctapi.ftqq.com"
+        self.serverchan_debug = os.getenv("SERVERCHAN_DEBUG", "0") == "1"
+
+    def _mask_serverchan_key(self) -> str:
+        """隐藏敏感 Key，仅输出少量字符用于排查。"""
+        if not self.serverchan_key:
+            return "<empty>"
+        key = self.serverchan_key
+        if len(key) <= 8:
+            return f"{key[:2]}***{key[-2:]}"
+        return f"{key[:4]}***{key[-4:]}"
+
+    def _print_serverchan_debug_info(self, url: str, payload: Dict) -> None:
+        """输出 ServerChan 调试信息（不会泄露完整 key）。"""
+        if not self.serverchan_debug:
+            return
+
+        print("🧪 ServerChan 调试模式已开启")
+        print(f"   endpoint: {self.serverchan_url}/<key>.send")
+        print(f"   key(脱敏): {self._mask_serverchan_key()}")
+        print(f"   request_url(脱敏): {url.replace(self.serverchan_key, '<key>')}")
+        print(f"   title_len: {len(payload.get('title', ''))}")
+        print(f"   desp_len: {len(payload.get('desp', ''))}")
 
     def send_via_serverchan(self, title: str, content: str) -> bool:
         """通过 ServerChan 发送消息
@@ -40,29 +62,46 @@ class WeChatNotifier:
             return False
 
         url = f"{self.serverchan_url}/{self.serverchan_key}.send"
-
+        # 使用 ServerChan 默认推送通道，避免固定 channel/openid 导致“接口成功但未送达”。
         data = {
-                    "title": title,
-                    "desp": content,   # ✅ 用 desp 才是正文（Markdown）
-                    "channel": 3,
-                    "openid": ""
-                }
-                response = requests.post(url, data=data, timeout=30)
-                response.raise_for_status()
-                result = response.json()
+            "title": title,
+            "desp": content,
+        }
+        self._print_serverchan_debug_info(url, data)
 
         try:
-
-            if result.get("code") == 0:
-                print("✓ ServerChan 推送成功")
-                return True
-            else:
-                print(f"✗ ServerChan 推送失败: {result.get('message', '未知错误')}")
-                return False
-
+            response = requests.post(url, data=data, timeout=30)
+            response.raise_for_status()
+            if self.serverchan_debug:
+                print(f"   http_status: {response.status_code}")
+                print(f"   content_type: {response.headers.get('Content-Type', '未知')}")
+            result = response.json()
         except requests.RequestException as e:
             print(f"✗ ServerChan 请求错误: {e}")
             return False
+        except ValueError:
+            print(f"✗ ServerChan 响应不是有效 JSON: {response.text[:200]}")
+            return False
+
+        if self.serverchan_debug:
+            print(f"   response_json: {json.dumps(result, ensure_ascii=False)}")
+
+        if result.get("code") == 0:
+            print("✓ ServerChan 推送成功")
+            if self.serverchan_debug:
+                data_obj = result.get("data") or {}
+                pushid = data_obj.get("pushid", "<missing>")
+                readkey = data_obj.get("readkey", "<missing>")
+                print(f"   pushid: {pushid}")
+                print(f"   readkey: {readkey}")
+                print("   提示: 若仍未在微信看到消息，请检查 Server酱是否已绑定正确微信账号，或是否被折叠到“服务通知”。")
+            return True
+
+        print(
+            "✗ ServerChan 推送失败: "
+            f"code={result.get('code')}, message={result.get('message', '未知错误')}"
+        )
+        return False
 
     def send_via_wecom_webhook(
         self,
