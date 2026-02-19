@@ -7,7 +7,7 @@
 
 import os
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 
 
@@ -22,6 +22,28 @@ class NewsFetcher:
         """
         self.api_key = api_key or os.getenv("NEWS_API_KEY")
         self.base_url = "https://newsapi.org/v2"
+        self.lookback_hours = int(os.getenv("NEWS_LOOKBACK_HOURS", "24"))
+
+    @staticmethod
+    def _parse_published_at(value: str) -> Optional[datetime]:
+        """解析 NewsAPI 的发布时间。"""
+        if not value:
+            return None
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if not dt.tzinfo:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+        except ValueError:
+            return None
+
+    def _is_within_lookback(self, published_at: str) -> bool:
+        """仅保留最近 lookback_hours 内的新闻。"""
+        published_dt = self._parse_published_at(published_at)
+        if not published_dt:
+            return False
+        window_start = datetime.now(timezone.utc) - timedelta(hours=self.lookback_hours)
+        return published_dt >= window_start
 
     def get_top_headlines(
         self,
@@ -44,11 +66,15 @@ class NewsFetcher:
             return self._get_mock_news(keyword)
 
         endpoint = f"{self.base_url}/everything"
+        now_utc = datetime.now(timezone.utc)
+        from_utc = now_utc - timedelta(hours=self.lookback_hours)
         params = {
             "q": keyword,
             "language": language,
             "sortBy": "publishedAt",
             "pageSize": page_size,
+            "from": from_utc.isoformat(timespec="seconds").replace("+00:00", "Z"),
+            "to": now_utc.isoformat(timespec="seconds").replace("+00:00", "Z"),
             "apiKey": self.api_key
         }
 
@@ -58,7 +84,7 @@ class NewsFetcher:
 
             if data.get("status") == "ok":
                 articles = data.get("articles", [])
-                return [
+                filtered_articles = [
                     {
                         "title": article.get("title", ""),
                         "description": article.get("description", ""),
@@ -69,6 +95,7 @@ class NewsFetcher:
                     for article in articles
                     if article.get("title") and article.get("title") != "[Removed]"
                 ]
+                return [a for a in filtered_articles if self._is_within_lookback(a.get("published_at", ""))]
             else:
                 print(f"API 返回错误: {data.get('message', '未知错误')}")
                 return self._get_mock_news(keyword)
@@ -155,6 +182,29 @@ class NewsFetcher:
                     "source": "Euronews",
                     "published_at": datetime.now().isoformat()
                 }
+            ],
+            "chinese in france": [
+                {
+                    "title": "巴黎华人社区举办春节文化活动",
+                    "description": "法国多地华社组织新春庆典，推动中法民间文化交流",
+                    "url": "https://www.chinanews.com.cn/",
+                    "source": "中国新闻网",
+                    "published_at": datetime.now().isoformat()
+                },
+                {
+                    "title": "法国更新外国人居留政策说明",
+                    "description": "涉及学生、工作及家庭团聚签证流程，建议在法华人关注官方更新",
+                    "url": "https://www.service-public.fr/",
+                    "source": "Service-Public.fr",
+                    "published_at": datetime.now().isoformat()
+                },
+                {
+                    "title": "中法航线运力恢复，往返出行选择增加",
+                    "description": "中法主要航线班次增加，利好在法华人探亲与商务往来",
+                    "url": "https://www.airfrance.fr/",
+                    "source": "Air France",
+                    "published_at": datetime.now().isoformat()
+                }
             ]
         }
 
@@ -177,7 +227,8 @@ class NewsFetcher:
         topics = {
             "ai": "artificial intelligence OR AI OR machine learning OR deep learning",
             "china": "China OR Chinese",
-            "france": "France OR French OR Paris"
+            "france": "France OR French OR Paris",
+            "fr_china": "Chinese in France OR France China relations OR Chinese community in France OR 巴黎 华侨 OR 法国 华人"
         }
 
         news_data = {}
