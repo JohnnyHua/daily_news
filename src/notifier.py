@@ -7,6 +7,7 @@
 
 import os
 import json
+import time
 import requests
 from datetime import datetime
 from typing import Optional, Dict, Any
@@ -24,6 +25,8 @@ class WeChatNotifier:
         self.serverchan_key = serverchan_key or os.getenv("SERVERCHAN_KEY")
         self.serverchan_url = "https://sctapi.ftqq.com"
         self.serverchan_debug = os.getenv("SERVERCHAN_DEBUG", "0") == "1"
+        self.serverchan_channel = os.getenv("SERVERCHAN_CHANNEL")
+        self.serverchan_openid = os.getenv("SERVERCHAN_OPENID")
 
     def _mask_serverchan_key(self) -> str:
         """隐藏敏感 Key，仅输出少量字符用于排查。"""
@@ -45,6 +48,8 @@ class WeChatNotifier:
         print(f"   request_url(脱敏): {url.replace(self.serverchan_key, '<key>')}")
         print(f"   title_len: {len(payload.get('title', ''))}")
         print(f"   desp_len: {len(payload.get('desp', ''))}")
+        print(f"   channel: {payload.get('channel', '<default>')}")
+        print(f"   openid: {payload.get('openid', '<default>')}")
 
     def _query_serverchan_push_status(self, pushid: str, readkey: str) -> Optional[Dict[str, Any]]:
         """查询 ServerChan 推送任务在微信侧的执行状态。"""
@@ -68,6 +73,19 @@ class WeChatNotifier:
             print(f"⚠️ 推送状态查询返回非 JSON: {response.text[:200]}")
             return None
 
+    @staticmethod
+    def _extract_wxstatus(push_result: Dict[str, Any]) -> Optional[str]:
+        """尽可能兼容不同字段结构，提取微信状态文本。"""
+        data_obj = push_result.get("data") or {}
+        wxstatus = data_obj.get("wxstatus")
+        if wxstatus:
+            return str(wxstatus)
+
+        for key in ("message", "msg", "errmsg"):
+            if push_result.get(key):
+                return str(push_result[key])
+        return None
+
     def send_via_serverchan(self, title: str, content: str) -> bool:
         """通过 ServerChan 发送消息
 
@@ -84,14 +102,15 @@ class WeChatNotifier:
             return False
 
         url = f"{self.serverchan_url}/{self.serverchan_key}.send"
-
-        # 使用 ServerChan 默认推送通道，避免固定 channel/openid 导致“接口成功但未送达”。
         data = {
             "title": title,
             "desp": content,
         }
+        if self.serverchan_channel:
+            data["channel"] = self.serverchan_channel
+        if self.serverchan_openid:
+            data["openid"] = self.serverchan_openid
         self._print_serverchan_debug_info(url, data)
- main
 
         try:
             response = requests.post(url, data=data, timeout=30)
@@ -119,17 +138,26 @@ class WeChatNotifier:
                 print(f"   pushid: {pushid or '<missing>'}")
                 print(f"   readkey: {readkey or '<missing>'}")
 
-            # ServerChan code=0 仅表示已进入异步队列，继续查询微信侧状态。
+            # ServerChan code=0 仅表示已进入异步队列，继续轮询微信侧状态。
             if pushid and readkey:
-                push_status = self._query_serverchan_push_status(pushid, readkey)
-                if push_status and self.serverchan_debug:
-                    wxstatus = push_status.get("data", {}).get("wxstatus")
+                push_status = None
+                wxstatus = None
+                for attempt in range(1, 4):
+                    push_status = self._query_serverchan_push_status(pushid, readkey)
+                    if not push_status:
+                        continue
+                    wxstatus = self._extract_wxstatus(push_status)
+                    if self.serverchan_debug:
+                        print(f"   status_poll_{attempt}: {wxstatus or '<empty>'}")
+                    if wxstatus:
+                        break
+                    time.sleep(2)
+
+                if self.serverchan_debug:
                     if wxstatus:
                         print(f"   wxstatus: {wxstatus}")
                     else:
-                        print("   wxstatus: <empty>（任务可能仍在队列中，建议稍后重试查询）")
-                elif self.serverchan_debug:
-                    print("   未能获取推送状态，建议在 Actions 日志中保留 pushid/readkey 后手动查询。")
+                        print("   wxstatus: <empty>（轮询后仍为空，说明任务可能仍在队列中）")
             elif self.serverchan_debug:
                 print("   响应中缺少 pushid/readkey，无法查询微信回执。")
 
@@ -141,13 +169,6 @@ class WeChatNotifier:
             "✗ ServerChan 推送失败: "
             f"code={result.get('code')}, message={result.get('message', '未知错误')}"
         )
-        return False
-
-        if result.get("code") == 0:
-            print("✓ ServerChan 推送成功")
-            return True
-
-        print(f"✗ ServerChan 推送失败: {result.get('message', '未知错误')}")
         return False
 
     def send_via_wecom_webhook(
