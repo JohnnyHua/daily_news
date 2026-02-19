@@ -9,7 +9,7 @@ import os
 import json
 import requests
 from datetime import datetime
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 
 
 class WeChatNotifier:
@@ -23,6 +23,50 @@ class WeChatNotifier:
         """
         self.serverchan_key = serverchan_key or os.getenv("SERVERCHAN_KEY")
         self.serverchan_url = "https://sctapi.ftqq.com"
+        self.serverchan_debug = os.getenv("SERVERCHAN_DEBUG", "0") == "1"
+
+    def _mask_serverchan_key(self) -> str:
+        """隐藏敏感 Key，仅输出少量字符用于排查。"""
+        if not self.serverchan_key:
+            return "<empty>"
+        key = self.serverchan_key
+        if len(key) <= 8:
+            return f"{key[:2]}***{key[-2:]}"
+        return f"{key[:4]}***{key[-4:]}"
+
+    def _print_serverchan_debug_info(self, url: str, payload: Dict) -> None:
+        """输出 ServerChan 调试信息（不会泄露完整 key）。"""
+        if not self.serverchan_debug:
+            return
+
+        print("🧪 ServerChan 调试模式已开启")
+        print(f"   endpoint: {self.serverchan_url}/<key>.send")
+        print(f"   key(脱敏): {self._mask_serverchan_key()}")
+        print(f"   request_url(脱敏): {url.replace(self.serverchan_key, '<key>')}")
+        print(f"   title_len: {len(payload.get('title', ''))}")
+        print(f"   desp_len: {len(payload.get('desp', ''))}")
+
+    def _query_serverchan_push_status(self, pushid: str, readkey: str) -> Optional[Dict[str, Any]]:
+        """查询 ServerChan 推送任务在微信侧的执行状态。"""
+        if not pushid or not readkey:
+            return None
+
+        url = f"{self.serverchan_url}/push"
+        params = {"id": pushid, "readkey": readkey}
+
+        try:
+            response = requests.get(url, params=params, timeout=20)
+            response.raise_for_status()
+            result = response.json()
+            if self.serverchan_debug:
+                print(f"   push_query_json: {json.dumps(result, ensure_ascii=False)}")
+            return result
+        except requests.RequestException as e:
+            print(f"⚠️ 推送状态查询失败: {e}")
+            return None
+        except ValueError:
+            print(f"⚠️ 推送状态查询返回非 JSON: {response.text[:200]}")
+            return None
 
     def send_via_serverchan(self, title: str, content: str) -> bool:
         """通过 ServerChan 发送消息
@@ -40,20 +84,64 @@ class WeChatNotifier:
             return False
 
         url = f"{self.serverchan_url}/{self.serverchan_key}.send"
+codex/fix-indentation-error-in-notifier.py-8pgib0
+        # 使用 ServerChan 默认推送通道，避免固定 channel/openid 导致“接口成功但未送达”。
         data = {
             "title": title,
             "desp": content,
-            "channel": 3,
-            "openid": "",
         }
+        self._print_serverchan_debug_info(url, data)
+ main
 
         try:
             response = requests.post(url, data=data, timeout=30)
             response.raise_for_status()
+            if self.serverchan_debug:
+                print(f"   http_status: {response.status_code}")
+                print(f"   content_type: {response.headers.get('Content-Type', '未知')}")
             result = response.json()
         except requests.RequestException as e:
             print(f"✗ ServerChan 请求错误: {e}")
             return False
+        except ValueError:
+            print(f"✗ ServerChan 响应不是有效 JSON: {response.text[:200]}")
+            return False
+
+        if self.serverchan_debug:
+            print(f"   response_json: {json.dumps(result, ensure_ascii=False)}")
+
+        if result.get("code") == 0:
+            print("✓ ServerChan 推送成功")
+            data_obj = result.get("data") or {}
+            pushid = data_obj.get("pushid")
+            readkey = data_obj.get("readkey")
+            if self.serverchan_debug:
+                print(f"   pushid: {pushid or '<missing>'}")
+                print(f"   readkey: {readkey or '<missing>'}")
+
+            # ServerChan code=0 仅表示已进入异步队列，继续查询微信侧状态。
+            if pushid and readkey:
+                push_status = self._query_serverchan_push_status(pushid, readkey)
+                if push_status and self.serverchan_debug:
+                    wxstatus = push_status.get("data", {}).get("wxstatus")
+                    if wxstatus:
+                        print(f"   wxstatus: {wxstatus}")
+                    else:
+                        print("   wxstatus: <empty>（任务可能仍在队列中，建议稍后重试查询）")
+                elif self.serverchan_debug:
+                    print("   未能获取推送状态，建议在 Actions 日志中保留 pushid/readkey 后手动查询。")
+            elif self.serverchan_debug:
+                print("   响应中缺少 pushid/readkey，无法查询微信回执。")
+
+            if self.serverchan_debug:
+                print("   提示: 若 wxstatus 成功但仍看不到消息，请检查微信是否关闭服务通知、是否被折叠，或通道接收人是否配置正确。")
+            return True
+
+        print(
+            "✗ ServerChan 推送失败: "
+            f"code={result.get('code')}, message={result.get('message', '未知错误')}"
+        )
+        return False
 
         if result.get("code") == 0:
             print("✓ ServerChan 推送成功")
