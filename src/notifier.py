@@ -84,12 +84,14 @@ class WeChatNotifier:
             return False
 
         url = f"{self.serverchan_url}/{self.serverchan_key}.send"
+codex/fix-indentation-error-in-notifier.py-8pgib0
         # 使用 ServerChan 默认推送通道，避免固定 channel/openid 导致“接口成功但未送达”。
         data = {
             "title": title,
             "desp": content,
         }
         self._print_serverchan_debug_info(url, data)
+ main
 
         try:
             response = requests.post(url, data=data, timeout=30)
@@ -139,6 +141,13 @@ class WeChatNotifier:
             "✗ ServerChan 推送失败: "
             f"code={result.get('code')}, message={result.get('message', '未知错误')}"
         )
+        return False
+
+        if result.get("code") == 0:
+            print("✓ ServerChan 推送成功")
+            return True
+
+        print(f"✗ ServerChan 推送失败: {result.get('message', '未知错误')}")
         return False
 
     def send_via_wecom_webhook(
