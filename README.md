@@ -43,6 +43,7 @@ AIGC:
 | `NEWS_API_KEY` | 新闻 API 密钥（可选） | [NewsAPI 官网](https://newsapi.org/) |
 | `OPENAI_API_KEY` | OpenAI API 密钥（可选） | 用于 AI 摘要优化 |
 | `NEWS_LOOKBACK_HOURS` | 新闻时效窗口（可选） | 默认 `24`，仅保留最近 N 小时新闻 |
+| `ALLOW_MOCK_NEWS` | 是否允许模拟新闻（可选） | 默认 `0`，建议生产环境保持关闭 |
 
 ### 3. 启用 Actions
 

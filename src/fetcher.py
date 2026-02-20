@@ -23,6 +23,7 @@ class NewsFetcher:
         self.api_key = api_key or os.getenv("NEWS_API_KEY")
         self.base_url = "https://newsapi.org/v2"
         self.lookback_hours = int(os.getenv("NEWS_LOOKBACK_HOURS", "24"))
+        self.allow_mock_news = os.getenv("ALLOW_MOCK_NEWS", "0") == "1"
 
     @staticmethod
     def _parse_published_at(value: str) -> Optional[datetime]:
@@ -62,8 +63,11 @@ class NewsFetcher:
             新闻列表
         """
         if not self.api_key:
-            # 如果没有 API 密钥，返回模拟数据用于测试
-            return self._get_mock_news(keyword)
+            print("⚠️ 未配置 NEWS_API_KEY，跳过模拟新闻以避免过时内容。")
+            if self.allow_mock_news:
+                print("⚠️ ALLOW_MOCK_NEWS=1，使用模拟新闻数据。")
+                return self._get_mock_news(keyword)
+            return []
 
         endpoint = f"{self.base_url}/everything"
         now_utc = datetime.now(timezone.utc)
@@ -98,11 +102,11 @@ class NewsFetcher:
                 return [a for a in filtered_articles if self._is_within_lookback(a.get("published_at", ""))]
             else:
                 print(f"API 返回错误: {data.get('message', '未知错误')}")
-                return self._get_mock_news(keyword)
+                return []
 
         except requests.RequestException as e:
             print(f"请求错误: {e}")
-            return self._get_mock_news(keyword)
+            return []
 
     def _get_mock_news(self, keyword: str) -> List[Dict]:
         """获取模拟新闻数据（用于测试或无 API 密钥时）
