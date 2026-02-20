@@ -18,7 +18,10 @@ AIGC:
 - 🤖 **AI 前沿**：每日获取最新人工智能领域新闻
 - 🇨🇳 **中国要闻**：获取中国国内重要新闻
 - 🇫🇷 **法国动态**：获取法国地区重要新闻
+- 👥 **在法华人相关**：关注法国华人社区与中法相关实用资讯
 - ⏰ **定时推送**：每天早上 10 点自动发送
+- 🕒 **时效过滤**：仅推送最近 24 小时内新闻（可配置）
+- 🧠 **OpenAI 摘要**：可用 OpenAI 自动生成重点摘要并保留原链接
 
 ## 支持的推送方式
 
@@ -39,6 +42,8 @@ AIGC:
 | `SERVERCHAN_KEY` | ServerChan 微信推送密钥 | [ServerChan 官网](https://sct.ftqq.com/) |
 | `NEWS_API_KEY` | 新闻 API 密钥（可选） | [NewsAPI 官网](https://newsapi.org/) |
 | `OPENAI_API_KEY` | OpenAI API 密钥（可选） | 用于 AI 摘要优化 |
+| `NEWS_LOOKBACK_HOURS` | 新闻时效窗口（可选） | 默认 `24`，仅保留最近 N 小时新闻 |
+| `ALLOW_MOCK_NEWS` | 是否允许模拟新闻（可选） | 默认 `0`，建议生产环境保持关闭 |
 
 ### 3. 启用 Actions
 

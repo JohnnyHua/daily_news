@@ -33,6 +33,9 @@ def main():
 
         # 统计新闻数量
         total_news = sum(len(articles) for articles in news_data.values())
+        if total_news == 0:
+            print("⚠️ 警告: 最近 24 小时内未获取到有效新闻，请检查 NEWS_API_KEY 或关键词")
+            return False
         print(f"✅ 成功获取 {total_news} 条新闻")
 
         # 步骤 2: 生成报告

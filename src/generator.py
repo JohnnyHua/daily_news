@@ -7,6 +7,7 @@
 
 import os
 import json
+import requests
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -29,12 +30,80 @@ class ReportGenerator:
     CATEGORY_NAMES = {
         "ai": "AI 前沿",
         "china": "中国要闻",
-        "france": "法国动态"
+        "france": "法国动态",
+        "fr_china": "在法华人相关"
     }
 
     def __init__(self):
         """初始化报告生成器"""
         self.report_data = {}
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        self.openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+    def _build_openai_summary(self, news_data: Dict[str, List[Dict]]) -> str:
+        """使用 OpenAI 生成摘要（包含原链接）。"""
+        if not self.openai_api_key:
+            return ""
+
+        items = []
+        for category in ("ai", "china", "france", "fr_china"):
+            cname = self.CATEGORY_NAMES.get(category, category)
+            for article in news_data.get(category, [])[:5]:
+                items.append({
+                    "category": cname,
+                    "title": article.get("title", ""),
+                    "description": article.get("description", ""),
+                    "url": article.get("url", ""),
+                    "source": article.get("source", "")
+                })
+
+        if not items:
+            return ""
+
+        prompt = (
+            "你是新闻编辑。请将输入新闻整理为中文简报，重点突出对‘住在法国的中国人’有价值的信息。"
+            "输出 5-8 条要点，每条必须附上原链接，格式为：- 要点（来源：[标题](URL)）。"
+            "不要编造信息。"
+        )
+
+        try:
+            response = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.openai_api_key}",
+                    "Content-Type": "application/json"
+                },
+                data=json.dumps({
+                    "model": self.openai_model,
+                    "messages": [
+                        {"role": "system", "content": prompt},
+                        {"role": "user", "content": json.dumps(items, ensure_ascii=False)}
+                    ],
+                    "temperature": 0.2
+                }),
+                timeout=45
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result["choices"][0]["message"]["content"].strip()
+        except (requests.RequestException, ValueError, KeyError, IndexError) as e:
+            print(f"⚠️ OpenAI 摘要生成失败，回退为规则摘要: {e}")
+            return ""
+
+    def _build_fallback_summary(self, news_data: Dict[str, List[Dict]]) -> str:
+        """无 OpenAI 或失败时的规则摘要（包含链接）。"""
+        lines = []
+        for category in ("fr_china", "france", "china", "ai"):
+            cname = self.CATEGORY_NAMES.get(category, category)
+            for article in news_data.get(category, [])[:2]:
+                title = article.get("title", "无标题")
+                url = article.get("url", "")
+                source = article.get("source", "未知来源")
+                if url:
+                    lines.append(f"- [{cname}] {title}（来源: {source}，链接: {url}）")
+                else:
+                    lines.append(f"- [{cname}] {title}（来源: {source}）")
+        return "\n".join(lines[:8])
 
     def generate_text_report(self, news_data: Dict[str, List[Dict]]) -> str:
         """生成纯文本格式的报告
@@ -66,6 +135,9 @@ class ReportGenerator:
 
         # 法国新闻
         lines.extend(self._format_category("france", news_data.get("france", [])))
+
+        # 在法华人相关
+        lines.extend(self._format_category("fr_china", news_data.get("fr_china", [])))
 
         # 底部信息
         lines.append("")
@@ -146,6 +218,19 @@ class ReportGenerator:
 
         # 法国新闻
         md.extend(self._format_markdown_category("france", news_data.get("france", [])))
+
+        # 在法华人相关
+        md.extend(self._format_markdown_category("fr_china", news_data.get("fr_china", [])))
+
+        # 生成摘要（优先 OpenAI）
+        md.append("## 🧠 今日重点摘要（含原链接）")
+        md.append("")
+        ai_summary = self._build_openai_summary(news_data)
+        if ai_summary:
+            md.append(ai_summary)
+        else:
+            md.append(self._build_fallback_summary(news_data))
+        md.append("")
 
         # 底部
         md.append("---")
@@ -307,6 +392,9 @@ class ReportGenerator:
         # 法国新闻
         html += self._format_html_category("france", "法国动态", news_data.get("france", []))
 
+        # 在法华人相关
+        html += self._format_html_category("fr_china", "在法华人相关", news_data.get("fr_china", []))
+
         html += """
     <div class="footer">
         <p>每天早上 10:00 自动推送 | 数据来源：NewsAPI</p>
@@ -368,7 +456,10 @@ class ReportGenerator:
         counts = {k: len(v) for k, v in news_data.items()}
         total = sum(counts.values())
 
-        return f"今日简报：AI {counts.get('ai', 0)}条 | 中国 {counts.get('china', 0)}条 | 法国 {counts.get('france', 0)}条"
+        return (
+            f"今日简报：AI {counts.get('ai', 0)}条 | 中国 {counts.get('china', 0)}条 | "
+            f"法国 {counts.get('france', 0)}条 | 在法华人 {counts.get('fr_china', 0)}条"
+        )
 
 
 if __name__ == "__main__":

@@ -20,7 +20,14 @@ jobs:
       - name: 安装依赖
         run: pip install requests
 
+
+      - name: 语法检查
+        run: python -m py_compile src/fetcher.py src/generator.py src/notifier.py src/main.py
+
       - name: 运行脚本
         env:
           SERVERCHAN_KEY: ${{ secrets.SERVERCHAN_KEY }}
+          NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          NEWS_LOOKBACK_HOURS: "24"
         run: python src/main.py
