@@ -26,7 +26,7 @@ class GitHubTrendingFetcher:
         """
         url = f"https://api.github.com/search/repositories"
         params = {
-            "q": f"language:{self.language} created:>2024-01-01",
+            "q": f"language:{self.language} pushed:>2025-12-01",
             "sort": "stars",
             "order": "desc",
             "per_page": limit,
@@ -79,7 +79,7 @@ class GitHubTrendingFetcher:
         for lang in languages:
             url = f"https://api.github.com/search/repositories"
             params = {
-                "q": f"language:{lang} created:>2024-01-01",
+                "q": f"language:{lang} pushed:>2025-12-01",
                 "sort": "stars",
                 "order": "desc",
                 "per_page": limit_per_lang,
