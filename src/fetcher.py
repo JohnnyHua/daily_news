@@ -2,255 +2,236 @@
 # -*- coding: utf-8 -*-
 """
 新闻获取模块
-从 NewsAPI 获取 AI、中国和法国的新闻
+支持多个免费 RSS 源：tldr.tech, TechCrunch, Reddit 热门
 """
 
 import os
+import re
+import feedparser
 import requests
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
+from urllib.parse import urljoin
 
 
 class NewsFetcher:
-    """新闻获取器"""
+    """新闻获取器 - RSS 方案（免费）"""
+
+    # RSS 源配置
+    RSS_SOURCES = {
+        "ai": {
+            "name": "AI 前沿",
+            "feeds": [
+                # tldr.ai - 每日 AI 新闻
+                "https://tldr.tech/ai/feed",
+                # Hacker News AI
+                "https://hnrss.org/newest?q=AI&q=machine%20learning",
+            ],
+        },
+        "tech": {
+            "name": "科技要闻",
+            "feeds": [
+                # TechCrunch
+                "https://techcrunch.com/feed/",
+                # The Verge Tech
+                "https://www.theverge.com/rss/index.xml",
+            ],
+        },
+        "france": {
+            "name": "法国动态",
+            "feeds": [
+                # 法国新闻 RSS
+                "https://www.lemonde.fr/rss/une.xml",
+                # Euronews
+                "https://www.euronews.com/rss",
+            ],
+        },
+        "china": {
+            "name": "中国要闻",
+            "feeds": [
+                # 联合早报
+                "https://www.zaobao.com.sg/rss/znews/china.xml",
+            ],
+        },
+    }
 
     def __init__(self, api_key: Optional[str] = None):
-        """初始化新闻获取器
-
-        Args:
-            api_key: NewsAPI 密钥，如不提供则从环境变量读取
-        """
+        """初始化新闻获取器"""
         self.api_key = api_key or os.getenv("NEWS_API_KEY")
-        self.base_url = "https://newsapi.org/v2"
         self.lookback_hours = int(os.getenv("NEWS_LOOKBACK_HOURS", "24"))
         self.allow_mock_news = os.getenv("ALLOW_MOCK_NEWS", "0") == "1"
 
-    @staticmethod
-    def _parse_published_at(value: str) -> Optional[datetime]:
-        """解析 NewsAPI 的发布时间。"""
-        if not value:
-            return None
-        try:
-            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            if not dt.tzinfo:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(timezone.utc)
-        except ValueError:
-            return None
+    def _parse_date(self, entry) -> Optional[datetime]:
+        """解析 RSS 条目的日期"""
+        # 尝试多个日期字段
+        for date_field in ("published_parsed", "updated_parsed", "dc_date"):
+            if hasattr(entry, date_field):
+                try:
+                    from time import mktime
 
-    def _is_within_lookback(self, published_at: str) -> bool:
-        """仅保留最近 lookback_hours 内的新闻。"""
-        published_dt = self._parse_published_at(published_at)
+                    dt = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+                    return dt
+                except:
+                    continue
+
+        # 尝试解析原始日期字符串
+        for field in ("published", "updated", "dc_date"):
+            if hasattr(entry, field):
+                try:
+                    value = getattr(entry, field)
+                    if value:
+                        # 尝试 ISO 格式
+                        if "T" in value:
+                            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                            return dt.astimezone(timezone.utc)
+                except:
+                    continue
+        return None
+
+    def _is_recent(self, entry) -> bool:
+        """检查条目是否在时间范围内"""
+        published_dt = self._parse_date(entry)
         if not published_dt:
-            return False
+            return True  # 无法解析日期时保留
         window_start = datetime.now(timezone.utc) - timedelta(hours=self.lookback_hours)
         return published_dt >= window_start
 
-    def get_top_headlines(
-        self,
-        keyword: str,
-        language: str = "en",
-        page_size: int = 5
-    ) -> List[Dict]:
-        """获取关键词相关的热门新闻
+    def _clean_html(self, html: str) -> str:
+        """清理 HTML 标签"""
+        if not html:
+            return ""
+        # 移除 HTML 标签
+        clean = re.sub(r"<[^>]+>", "", html)
+        # 移除多余空白
+        clean = re.sub(r"\s+", " ", clean).strip()
+        return clean
 
-        Args:
-            keyword: 搜索关键词
-            language: 语言代码
-            page_size: 返回数量
-
-        Returns:
-            新闻列表
-        """
-        if not self.api_key:
-            print("⚠️ 未配置 NEWS_API_KEY，跳过模拟新闻以避免过时内容。")
-            if self.allow_mock_news:
-                print("⚠️ ALLOW_MOCK_NEWS=1，使用模拟新闻数据。")
-                return self._get_mock_news(keyword)
-            return []
-
-        endpoint = f"{self.base_url}/everything"
-        now_utc = datetime.now(timezone.utc)
-        from_utc = now_utc - timedelta(hours=self.lookback_hours)
-        params = {
-            "q": keyword,
-            "language": language,
-            "sortBy": "publishedAt",
-            "pageSize": page_size,
-            "from": from_utc.isoformat(timespec="seconds").replace("+00:00", "Z"),
-            "to": now_utc.isoformat(timespec="seconds").replace("+00:00", "Z"),
-            "apiKey": self.api_key
-        }
-
+    def _fetch_feed(self, feed_url: str, limit: int = 10) -> List[Dict]:
+        """获取单个 RSS 源"""
         try:
-            response = requests.get(endpoint, params=params, timeout=10)
-            data = response.json()
+            headers = {"User-Agent": "DailyNewsBot/1.0"}
+            response = requests.get(feed_url, headers=headers, timeout=8)
+            response.raise_for_status()
 
-            if data.get("status") == "ok":
-                articles = data.get("articles", [])
-                filtered_articles = [
+            feed = feedparser.parse(response.content)
+
+            articles = []
+            for entry in feed.entries[:limit]:
+                if not self._is_recent(entry):
+                    continue
+
+                # 提取标题和链接
+                title = getattr(entry, "title", "无标题")
+                link = getattr(entry, "link", "")
+
+                # 尝试获取摘要
+                description = ""
+                for desc_field in ("summary", "description", "content"):
+                    if hasattr(entry, desc_field):
+                        raw_desc = getattr(entry, desc_field)
+                        if raw_desc:
+                            description = self._clean_html(raw_desc)
+                            break
+
+                # 获取发布时间
+                published = ""
+                if hasattr(entry, "published"):
+                    published = entry.published
+                elif hasattr(entry, "updated"):
+                    published = entry.updated
+
+                # 来源
+                source = ""
+                if hasattr(feed, "feed") and hasattr(feed.feed, "title"):
+                    source = feed.feed.title
+
+                articles.append(
                     {
-                        "title": article.get("title", ""),
-                        "description": article.get("description", ""),
-                        "url": article.get("url", ""),
-                        "source": article.get("source", {}).get("name", ""),
-                        "published_at": article.get("publishedAt", "")
+                        "title": title,
+                        "description": description[:200] if description else "",
+                        "url": link,
+                        "source": source or feed_url,
+                        "published_at": published,
                     }
-                    for article in articles
-                    if article.get("title") and article.get("title") != "[Removed]"
-                ]
-                return [a for a in filtered_articles if self._is_within_lookback(a.get("published_at", ""))]
-            else:
-                print(f"API 返回错误: {data.get('message', '未知错误')}")
-                return []
+                )
 
-        except requests.RequestException as e:
-            print(f"请求错误: {e}")
+            return articles
+
+        except Exception as e:
+            print(f"  ⚠️ 获取失败 {feed_url}: {e}")
             return []
 
-    def _get_mock_news(self, keyword: str) -> List[Dict]:
-        """获取模拟新闻数据（用于测试或无 API 密钥时）
-
-        Args:
-            keyword: 关键词
-
-        Returns:
-            模拟新闻列表
-        """
-        mock_data = {
-            "artificial intelligence": [
-                {
-                    "title": "OpenAI 发布 GPT-5 预览版，带来突破性进展",
-                    "description": "新一代大语言模型在推理能力和多模态理解方面取得重大突破",
-                    "url": "https://openai.com",
-                    "source": "OpenAI",
-                    "published_at": datetime.now().isoformat()
-                },
-                {
-                    "title": "Google DeepMind 发布 AlphaFold 3",
-                    "description": "蛋白质结构预测精度进一步提升，为药物研发提供更强工具",
-                    "url": "https://deepmind.com",
-                    "source": "DeepMind",
-                    "published_at": datetime.now().isoformat()
-                },
-                {
-                    "title": "Meta 开源 Llama 3 性能超越 GPT-4",
-                    "description": "Meta 继续推进开源 AI 发展，新模型在多项基准测试中领先",
-                    "url": "https://meta.com",
-                    "source": "Meta AI",
-                    "published_at": datetime.now().isoformat()
-                }
-            ],
-            "china": [
-                {
-                    "title": "中国数字经济规模突破 50 万亿元",
-                    "description": "2024 年中国数字经济继续保持快速增长，成为经济增长重要引擎",
-                    "url": "https://xinhuanet.com",
-                    "source": "新华网",
-                    "published_at": datetime.now().isoformat()
-                },
-                {
-                    "title": "中国在 AI 领域发表论文数量全球第一",
-                    "description": "中国科研机构在人工智能领域的研究产出持续增长",
-                    "url": "https://people.com.cn",
-                    "source": "人民网",
-                    "published_at": datetime.now().isoformat()
-                },
-                {
-                    "title": "中国新能源汽车销量创新高",
-                    "description": "比亚迪、蔚来等品牌销量持续攀升，推动汽车产业转型",
-                    "url": "https://automotive.com.cn",
-                    "source": "汽车之家",
-                    "published_at": datetime.now().isoformat()
-                }
-            ],
-            "france": [
-                {
-                    "title": "巴黎奥运会筹备工作进入最后阶段",
-                    "description": "2024 年巴黎奥运会各项准备工作基本完成，预计将吸引全球关注",
-                    "url": "https://lemonde.fr",
-                    "source": "Le Monde",
-                    "published_at": datetime.now().isoformat()
-                },
-                {
-                    "title": "法国科技 startup 融资规模创新高",
-                    "description": "法国科技生态系统持续繁荣，AI 和绿色科技领域投资活跃",
-                    "url": "https://lefigaro.fr",
-                    "source": "Le Figaro",
-                    "published_at": datetime.now().isoformat()
-                },
-                {
-                    "title": "法国推动欧盟 AI 监管框架",
-                    "description": "法国在欧洲 AI 监管讨论中发挥积极作用，寻求创新与监管平衡",
-                    "url": "https://euronews.com",
-                    "source": "Euronews",
-                    "published_at": datetime.now().isoformat()
-                }
-            ],
-            "chinese in france": [
-                {
-                    "title": "巴黎华人社区举办春节文化活动",
-                    "description": "法国多地华社组织新春庆典，推动中法民间文化交流",
-                    "url": "https://www.chinanews.com.cn/",
-                    "source": "中国新闻网",
-                    "published_at": datetime.now().isoformat()
-                },
-                {
-                    "title": "法国更新外国人居留政策说明",
-                    "description": "涉及学生、工作及家庭团聚签证流程，建议在法华人关注官方更新",
-                    "url": "https://www.service-public.fr/",
-                    "source": "Service-Public.fr",
-                    "published_at": datetime.now().isoformat()
-                },
-                {
-                    "title": "中法航线运力恢复，往返出行选择增加",
-                    "description": "中法主要航线班次增加，利好在法华人探亲与商务往来",
-                    "url": "https://www.airfrance.fr/",
-                    "source": "Air France",
-                    "published_at": datetime.now().isoformat()
-                }
-            ]
+    def get_top_headlines(
+        self, keyword: str, language: str = "en", page_size: int = 5
+    ) -> List[Dict]:
+        """获取关键词相关的热门新闻（兼容原接口）"""
+        # 映射关键词到分类
+        category_map = {
+            "ai": "ai",
+            "artificial intelligence": "ai",
+            "machine learning": "ai",
+            "tech": "tech",
+            "technology": "tech",
+            "france": "france",
+            "french": "france",
+            "paris": "france",
+            "china": "china",
+            "chinese": "china",
         }
 
-        # 尝试匹配关键词
         keyword_lower = keyword.lower()
-        for key, news in mock_data.items():
-            if key in keyword_lower:
-                return news
+        category = category_map.get(keyword_lower, "tech")
 
-        # 默认返回 AI 新闻
-        return mock_data["artificial intelligence"]
+        return self.fetch_category_news(category, limit)
+
+    def fetch_category_news(self, category: str, limit: int = 10) -> List[Dict]:
+        """获取指定分类的新闻"""
+        if category not in self.RSS_SOURCES:
+            print(f"  ⚠️ 未知分类: {category}")
+            return []
+
+        config = self.RSS_SOURCES[category]
+        all_articles = []
+
+        print(f"  正在获取 {config['name']} 新闻...")
+
+        for feed_url in config["feeds"]:
+            articles = self._fetch_feed(feed_url, limit)
+            all_articles.extend(articles)
+            if len(all_articles) >= limit:
+                break
+
+        # 去重并限制数量
+        seen = set()
+        unique_articles = []
+        for article in all_articles:
+            title = article["title"].lower()
+            if title not in seen and title != "无标题":
+                seen.add(title)
+                unique_articles.append(article)
+
+        print(f"  获取到 {len(unique_articles)} 条新闻")
+        return unique_articles[:limit]
 
     def fetch_all_news(self) -> Dict[str, List[Dict]]:
-        """获取所有类别的新闻
-
-        Returns:
-            包含所有类别新闻的字典
-        """
-        # 定义搜索关键词
-        topics = {
-            "ai": "artificial intelligence OR AI OR machine learning OR deep learning",
-            "china": "China OR Chinese",
-            "france": "France OR French OR Paris",
-            "fr_china": "Chinese in France OR France China relations OR Chinese community in France OR 巴黎 华侨 OR 法国 华人"
-        }
-
+        """获取所有类别的新闻"""
         news_data = {}
 
-        for category, keyword in topics.items():
-            print(f"正在获取 {category} 类别新闻...")
-            news_data[category] = self.get_top_headlines(keyword, page_size=5)
-            print(f"获取到 {len(news_data[category])} 条 {category} 新闻")
+        for category in self.RSS_SOURCES.keys():
+            news_data[category] = self.fetch_category_news(category, limit=5)
 
         return news_data
 
 
 if __name__ == "__main__":
     # 测试代码
+    print("=== RSS 新闻获取测试 ===\n")
+
     fetcher = NewsFetcher()
     news = fetcher.fetch_all_news()
 
     for category, articles in news.items():
-        print(f"\n{category} 新闻:")
-        for article in articles:
-            print(f"  - {article['title']}")
+        print(f"\n【{category.upper()}】")
+        for i, article in enumerate(articles[:3], 1):
+            print(f"  {i}. {article['title']}")
+            print(f"     {article['url']}")

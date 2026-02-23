@@ -4,7 +4,7 @@
 requests>=2.31.0
 
 # 可选：用于更丰富的新闻来源
-# feedparser>=6.0.10
+feedparser>=6.0.10
 
 # 可选：用于 AI 摘要生成
 # openai>=1.0.0

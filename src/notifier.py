@@ -9,8 +9,12 @@ import os
 import json
 import time
 import requests
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 from typing import Optional, Dict, Any
+from concurrent.futures import ThreadPoolExecutor
 
 
 class WeChatNotifier:
@@ -295,12 +299,61 @@ class WeChatNotifier:
             return False
 
 
+class EmailNotifier:
+    """邮件推送器"""
+
+    def __init__(self):
+        self.smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+        self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        self.smtp_user = os.getenv("SMTP_USER")
+        self.smtp_password = os.getenv("SMTP_PASSWORD")
+        self.from_email = os.getenv("SMTP_FROM", self.smtp_user)
+        self.to_email = os.getenv("SMTP_TO")
+
+    def send_email(self, subject: str, content: str) -> bool:
+        """发送邮件
+
+        Args:
+            subject: 邮件标题
+            content: 邮件内容
+
+        Returns:
+            是否发送成功
+        """
+        if not all([self.smtp_user, self.smtp_password, self.to_email]):
+            print("错误: 邮件配置不完整")
+            print("需要设置: SMTP_USER, SMTP_PASSWORD, SMTP_TO")
+            return False
+
+        try:
+            msg = MIMEMultipart('alternative')
+            msg['Subject'] = subject
+            msg['From'] = self.from_email
+            msg['To'] = self.to_email
+
+            msg.attach(MIMEText(content, 'plain', 'utf-8'))
+            msg.attach(MIMEText(content, 'html', 'utf-8'))
+
+            server = smtplib.SMTP(self.smtp_host, self.smtp_port)
+            server.starttls()
+            server.login(self.smtp_user, self.smtp_password)
+            server.send_message(msg)
+            server.quit()
+
+            print(f"✓ 邮件发送成功 -> {self.to_email}")
+            return True
+
+        except Exception as e:
+            print(f"✗ 邮件发送失败: {e}")
+            return False
+
+
 class NewsNotifier:
     """新闻报告推送器"""
 
     def __init__(self):
-        """初始化新闻推送器"""
         self.notifier = WeChatNotifier()
+        self.emailer = EmailNotifier()
 
     def send_daily_report(self, news_content: str) -> bool:
         """发送每日新闻报告
@@ -311,12 +364,15 @@ class NewsNotifier:
         Returns:
             是否发送成功
         """
-        # 生成标题
         today = datetime.now().strftime("%Y年%m月%d日")
         title = f"📰 每日新闻简报 - {today}"
 
-        # 发送消息
-        return self.notifier.send(title, news_content, webhook_type="serverchan")
+        push_type = os.getenv("PUSH_TYPE", "serverchan")
+
+        if push_type == "email":
+            return self.emailer.send_email(title, news_content)
+        else:
+            return self.notifier.send(title, news_content, webhook_type=push_type)
 
     def send_test_message(self) -> bool:
         """发送测试消息
@@ -335,12 +391,18 @@ class NewsNotifier:
 
 每天早上 10:00 您将收到：
 - 🤖 AI 前沿新闻
+- 📱 科技要闻
 - 🇨🇳 中国要闻
 - 🇫🇷 法国动态
 
 祝您阅读愉快！"""
 
-        return self.notifier.send(title, content, webhook_type="serverchan")
+        push_type = os.getenv("PUSH_TYPE", "serverchan")
+
+        if push_type == "email":
+            return self.emailer.send_email(title, content)
+        else:
+            return self.notifier.send(title, content, webhook_type=push_type)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ class ReportGenerator:
     # Emoji 映射
     EMOJI = {
         "ai": "🤖",
+        "tech": "📱",
         "china": "🇨🇳",
         "france": "🇫🇷",
         "title": "📰",
@@ -29,9 +30,9 @@ class ReportGenerator:
     # 分类名称映射
     CATEGORY_NAMES = {
         "ai": "AI 前沿",
-        "china": "中国要闻",
+        "tech": "科技要闻",
         "france": "法国动态",
-        "fr_china": "在法华人相关"
+        "china": "中国要闻"
     }
 
     def __init__(self):

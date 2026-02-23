@@ -18,7 +18,7 @@ jobs:
           python-version: '3.11'
 
       - name: 安装依赖
-        run: pip install requests
+        run: pip install -r requirements.txt
 
 
       - name: 语法检查
