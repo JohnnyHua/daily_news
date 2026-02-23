@@ -182,10 +182,9 @@ class ReportGenerator:
             md.append("|------|------|----------|")
             for repo in github_data[:8]:
                 name = repo.get("name", "N/A")
-                desc = repo.get("description", "暂无描述")
+                desc = (repo.get("description") or "暂无描述")[:50]
                 stars = repo.get("stars", 0)
                 url = repo.get("url", "")
-                # 截断描述
                 if len(desc) > 50:
                     desc = desc[:50] + "..."
                 if url:
