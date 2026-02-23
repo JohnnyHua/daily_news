@@ -518,11 +518,13 @@ class ReportGenerator:
             else self._build_fallback_summary(news_data, github_data)
         )
 
+        html_summary = summary_content.replace("\n", "<br>")
+
         html += f"""
         <div class="summary-section">
             <h2>🧠 今日要闻摘要</h2>
             <div class="summary-content">
-                {summary_content.replace("\n", "<br>")}
+                {html_summary}
             </div>
         </div>
 """
