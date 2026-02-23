@@ -310,12 +310,13 @@ class EmailNotifier:
         self.from_email = os.getenv("SMTP_FROM", self.smtp_user)
         self.to_email = os.getenv("SMTP_TO")
 
-    def send_email(self, subject: str, content: str) -> bool:
+    def send_email(self, subject: str, content: str, html_content: str = None) -> bool:
         """发送邮件
 
         Args:
             subject: 邮件标题
-            content: 邮件内容
+            content: 纯文本内容
+            html_content: HTML 内容（可选）
 
         Returns:
             是否发送成功
@@ -332,7 +333,11 @@ class EmailNotifier:
             msg['To'] = self.to_email
 
             msg.attach(MIMEText(content, 'plain', 'utf-8'))
-            msg.attach(MIMEText(content, 'html', 'utf-8'))
+
+            if html_content:
+                msg.attach(MIMEText(html_content, 'html', 'utf-8'))
+            else:
+                msg.attach(MIMEText(content, 'html', 'utf-8'))
 
             server = smtplib.SMTP(self.smtp_host, self.smtp_port)
             server.starttls()
@@ -355,11 +360,12 @@ class NewsNotifier:
         self.notifier = WeChatNotifier()
         self.emailer = EmailNotifier()
 
-    def send_daily_report(self, news_content: str, github_data: list = None) -> bool:
+    def send_daily_report(self, news_content: str, html_content: str = None, github_data: list = None) -> bool:
         """发送每日新闻报告
 
         Args:
             news_content: Markdown 格式的新闻报告
+            html_content: HTML 格式的新闻报告
             github_data: GitHub 热门项目数据
 
         Returns:
@@ -373,11 +379,7 @@ class NewsNotifier:
         push_type = os.getenv("PUSH_TYPE", "serverchan")
 
         if push_type == "email":
-            generator = ReportGenerator()
-            # 从 news_content 解析出 news_data
-            # 这里简化处理：直接用 markdown 作为邮件内容
-            # 更好的做法是重构传参
-            return self.emailer.send_email(title, news_content)
+            return self.emailer.send_email(title, news_content, html_content)
         else:
             return self.notifier.send(title, news_content, webhook_type=push_type)
 

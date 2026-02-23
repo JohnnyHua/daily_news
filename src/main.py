@@ -54,16 +54,22 @@ def main():
 
         # 生成 Markdown 格式（适合微信推送）
         report_content = generator.generate_markdown_report(news_data, github_data)
+        # 生成 HTML 格式（适合邮件）
+        report_html = generator.generate_html_report(news_data, github_data)
         report_summary = generator.generate_summary(news_data)
 
         print(f"✅ 报告生成完成")
         print(f"   摘要: {report_summary}")
 
         # 步骤 3: 发送推送
-        print("\n📤 步骤 3: 发送微信推送...")
+        print("\n📤 步骤 3: 发送推送...")
         notifier = NewsNotifier()
 
-        success = notifier.send_daily_report(report_content)
+        push_type = os.getenv("PUSH_TYPE", "serverchan")
+        if push_type == "email":
+            success = notifier.send_daily_report(report_content, report_html, github_data)
+        else:
+            success = notifier.send_daily_report(report_content)
 
         if success:
             print("\n" + "=" * 50)
