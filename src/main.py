@@ -12,6 +12,7 @@ from datetime import datetime
 from fetcher import NewsFetcher
 from generator import ReportGenerator
 from notifier import NewsNotifier
+from github_fetcher import GitHubTrendingFetcher
 
 
 def main():
@@ -38,12 +39,21 @@ def main():
             return False
         print(f"✅ 成功获取 {total_news} 条新闻")
 
+        # 步骤 1.5: 获取 GitHub 热门
+        print("\n📥 步骤 1.5: 获取 GitHub 热门项目...")
+        github_fetcher = GitHubTrendingFetcher()
+        github_data = github_fetcher.fetch_multi_language(limit_per_lang=5)
+        if github_data:
+            print(f"✅ 成功获取 {len(github_data)} 个 GitHub 热门项目")
+        else:
+            print("⚠️ 未能获取 GitHub 热门项目")
+
         # 步骤 2: 生成报告
         print("\n📝 步骤 2: 生成新闻报告...")
         generator = ReportGenerator()
 
         # 生成 Markdown 格式（适合微信推送）
-        report_content = generator.generate_markdown_report(news_data)
+        report_content = generator.generate_markdown_report(news_data, github_data)
         report_summary = generator.generate_summary(news_data)
 
         print(f"✅ 报告生成完成")

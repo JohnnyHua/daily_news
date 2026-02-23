@@ -355,21 +355,28 @@ class NewsNotifier:
         self.notifier = WeChatNotifier()
         self.emailer = EmailNotifier()
 
-    def send_daily_report(self, news_content: str) -> bool:
+    def send_daily_report(self, news_content: str, github_data: list = None) -> bool:
         """发送每日新闻报告
 
         Args:
-            news_content: 新闻报告内容
+            news_content: Markdown 格式的新闻报告
+            github_data: GitHub 热门项目数据
 
         Returns:
             是否发送成功
         """
+        from generator import ReportGenerator
+
         today = datetime.now().strftime("%Y年%m月%d日")
         title = f"📰 每日新闻简报 - {today}"
 
         push_type = os.getenv("PUSH_TYPE", "serverchan")
 
         if push_type == "email":
+            generator = ReportGenerator()
+            # 从 news_content 解析出 news_data
+            # 这里简化处理：直接用 markdown 作为邮件内容
+            # 更好的做法是重构传参
             return self.emailer.send_email(title, news_content)
         else:
             return self.notifier.send(title, news_content, webhook_type=push_type)
