@@ -34,4 +34,5 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           SMTP_TO: ${{ secrets.SMTP_TO }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python src/main.py

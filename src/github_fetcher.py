@@ -68,8 +68,13 @@ class GitHubTrendingFetcher:
         Returns:
             合并后的项目列表（按星标排序）
         """
-        languages = languages or ["python", "javascript", "go", "rust", "typescript"]
+        languages = languages or ["python", "javascript"]
         all_repos = []
+
+        headers = {"Accept": "application/vnd.github.v3+json"}
+        github_token = os.getenv("GITHUB_TOKEN")
+        if github_token:
+            headers["Authorization"] = f"token {github_token}"
 
         for lang in languages:
             url = f"https://api.github.com/search/repositories"
@@ -81,7 +86,7 @@ class GitHubTrendingFetcher:
             }
 
             try:
-                response = requests.get(url, params=params, timeout=15)
+                response = requests.get(url, params=params, headers=headers, timeout=15)
                 response.raise_for_status()
                 data = response.json()
 

@@ -475,7 +475,7 @@ class ReportGenerator:
             html += "<tr><th>项目</th><th>描述</th><th>Stars</th></tr>\n"
             for repo in github_data[:8]:
                 name = repo.get("name", "N/A")
-                desc = repo.get("description", "暂无描述")
+                desc = (repo.get("description") or "暂无描述")[:40]
                 stars = repo.get("stars", 0)
                 url = repo.get("url", "")
                 if len(desc) > 40:
