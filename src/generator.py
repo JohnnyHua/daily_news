@@ -44,6 +44,55 @@ class ReportGenerator:
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
+    def _translate_github_descriptions(self, github_data: List[Dict]) -> List[Dict]:
+        """使用 OpenAI 将 GitHub 项目描述翻译为中文"""
+        if not self.openai_api_key or not github_data:
+            return github_data
+
+        # 准备需要翻译的项目
+        projects = []
+        for repo in github_data[:8]:
+            projects.append({
+                "name": repo.get("name", ""),
+                "description": repo.get("description", "") or "无描述",
+                "stars": repo.get("stars", 0),
+                "url": repo.get("url", ""),
+                "language": repo.get("language", ""),
+            })
+
+        if not projects:
+            return github_data
+
+        prompt = """请将以下 GitHub 项目的英文描述翻译成中文。只翻译 description 字段，保留其他字段不变。
+返回 JSON 数组格式。
+
+项目列表：""" + json.dumps(projects, ensure_ascii=False)
+
+        try:
+            response = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.openai_api_key}",
+                    "Content-Type": "application/json"
+                },
+                data=json.dumps({
+                    "model": self.openai_model,
+                    "messages": [
+                        {"role": "system", "content": "你是一个专业的技术翻译助手，擅长将英文技术项目描述翻译成简洁易懂的中文。"},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "temperature": 0.3
+                }),
+                timeout=60
+            )
+            response.raise_for_status()
+            result = response.json()
+            translated = json.loads(result["choices"][0]["message"]["content"])
+            return translated
+        except Exception as e:
+            print(f"⚠️ GitHub 项目描述翻译失败: {e}")
+            return github_data
+
     def _build_openai_summary(
         self, news_data: Dict[str, List[Dict]], github_data: List[Dict]
     ) -> str:
@@ -164,6 +213,10 @@ class ReportGenerator:
         today = datetime.now().strftime("%Y年%m月%d日")
         github_data = github_data or []
 
+        # 翻译 GitHub 项目描述为中文
+        if github_data and self.openai_api_key:
+            github_data = self._translate_github_descriptions(github_data)
+
         md = []
 
         # ==================== 头部 ====================
@@ -283,6 +336,10 @@ class ReportGenerator:
         """
         today = datetime.now().strftime("%Y年%m月%d日")
         github_data = github_data or []
+
+        # 翻译 GitHub 项目描述为中文
+        if github_data and self.openai_api_key:
+            github_data = self._translate_github_descriptions(github_data)
 
         html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
